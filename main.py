@@ -30,8 +30,6 @@ from baselines.envs import TorchEnv, NoisyEnv, const
 def main(args):
     tools.log(" === Loading experiment ===")
     tools.log(args)
-    print("PRINTING!")
-    print(args.env_name)
 
     env = TorchEnv(args.env_name, args.max_episode_len, action_repeat=args.action_repeat, device=DEVICE)
     state_size = env.state_dims[0]
