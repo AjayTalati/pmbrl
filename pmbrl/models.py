@@ -168,6 +168,7 @@ class RewardModel(nn.Module):
         self.fc1 = nn.Linear(state_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, 1)
+        self.ensemble_reward_model = False
 
     def forward(self, state):
         reward = self.act_fn(self.fc1(state))
@@ -178,3 +179,43 @@ class RewardModel(nn.Module):
     def loss(self, states, rewards):
         r_hat = self(states)
         return F.mse_loss(r_hat, rewards)
+
+
+class EnsembleRewardModel(nn.Module):
+  def __init__(self, state_size, hidden_size, ensemble_size, non_linearity="swish", device="cpu",reward_ensemble_per_transition_ensemble=False):
+    super().__init__()
+    self.state_size = state_size
+    self.hidden_size = hidden_size
+    self.ensemble_size = ensemble_size
+    self.non_linearity=  non_linearity
+    self.ensemble_reward_model = True
+    self.device=  device
+
+    self.fc1 = EnsembleDenseLayer(self.state_size, self.hidden_size, self.ensemble_size, non_linearity=self.non_linearity)
+    self.fc2 = EnsembleDenseLayer(self.hidden_size, self.hidden_size, self.ensemble_size, non_linearity=self.non_linearity)
+    self.fc3 = EnsembleDenseLayer(self.hidden_size, 1, self.ensemble_size, non_linearity="linear")
+
+    self.reward_ensemble_per_transition_ensemble = reward_ensemble_per_transition_ensemble
+
+  def forward(self,state):
+    batch_size = state.size(1)
+    if not self.reward_ensemble_per_transition_ensemble:
+      reward = self.fc1(state)
+      reward = self.fc2(reward)
+      reward = self.fc3(reward).squeeze(dim=1)
+      return reward  # [N_ensembles, batch_size,1]
+    if self.reward_ensemble_per_transition_ensemble:
+      state = state.unsqueeze(0).repeat(self.ensemble_size,1,1,1) # repeat for ensemble_size
+      result = torch.empty([self.ensemble_size, self.ensemble_size, batch_size,1]).to(self.device)
+      for i in range(self.ensemble_size):
+        s = state[:,i,:,:]
+        reward = self.fc1(s)
+        reward = self.fc2(reward)
+        reward = self.fc3(reward).squeeze(dim=1)
+        result[i,:,:,:] = reward
+      return result #[N_ensmbles (reward), N_ensembles (t_model), batch_size,1]
+  def loss(self, states, rewards):
+    r_hat = self(states)
+    if self.reward_ensemble_per_transition_ensemble:
+      rewards = rewards.unsqueeze(0).repeat(self.ensemble_size,1,1,1) #tile for number of ensembles: [Ensemble_size (R_model),Ensemble_size (t_model),batch_size, 1]
+    return F.mse_loss(r_hat, rewards) #check if this means correctly over reward ensemble dim

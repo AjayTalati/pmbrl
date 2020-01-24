@@ -13,20 +13,22 @@ class Agent(object):
         self.env = env
         self.planner = planner
 
-    def get_seed_episodes(self, buffer, n_episodes):
+    def get_seed_episodes(self, buffer, n_episodes,render_flag=False):
         for _ in range(n_episodes):
             state = self.env.reset()
             done = False
             while not done:
                 action = self.env.sample_action()
                 next_state, reward, done = self.env.step(action)
+                if render_flag:
+                    self.env.render()
                 buffer.add(state, action, reward, next_state)
                 state = deepcopy(next_state)
                 if done:
                     break
         return buffer
 
-    def run_episode(self, buffer=None, action_noise=0.0):
+    def run_episode(self, buffer=None, action_noise=0.0,render_flag = False):
         total_reward = 0
         total_steps = 0
         done = False
@@ -41,6 +43,8 @@ class Agent(object):
                     action = action + np.random.normal(0, action_noise, action.shape)
 
                 next_state, reward, done = self.env.step(action)
+                if render_flag:
+                    self.env.render()
                 total_reward += reward
                 total_steps += 1
 

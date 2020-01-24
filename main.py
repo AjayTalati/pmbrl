@@ -18,8 +18,8 @@ import time
 from pmbrl.env import GymEnv, NoisyEnv
 from pmbrl.normalizer import TransitionNormalizer
 from pmbrl.buffer import Buffer
-from pmbrl.models import EnsembleModel, RewardModel
-from pmbrl.planner import Planner
+from pmbrl.models import EnsembleModel, RewardModel, EnsembleRewardModel
+from pmbrl.planner import CEMPlanner, PIPlanner, RandomShootingPlanner
 from pmbrl.agent import Agent
 from pmbrl import tools
 
@@ -30,6 +30,8 @@ from baselines.envs import TorchEnv, NoisyEnv, const
 def main(args):
     tools.log(" === Loading experiment ===")
     tools.log(args)
+    print("ARGS RENDER: ", args.render)
+
 
     env = TorchEnv(args.env_name, args.max_episode_len, action_repeat=args.action_repeat, device=DEVICE)
     state_size = env.state_dims[0]
@@ -57,23 +59,45 @@ def main(args):
         normalizer,
         device=DEVICE,
     ).to(DEVICE)
-    reward_model = RewardModel(state_size, args.hidden_size).to(DEVICE)
+    if args.use_ensemble_reward_model:
+        reward_model = EnsembleRewardModel(state_size, args.hidden_size, args.ensemble_size).to(DEVICE)
+    else:
+        reward_model = RewardModel(state_size, args.hidden_size).to(DEVICE)
     params = list(ensemble.parameters()) + list(reward_model.parameters())
     optim = torch.optim.Adam(params, lr=args.learning_rate, eps=args.epsilon)
 
-    planner = Planner(
+    if args.planner == "CEM":
+        planner = CEMPlanner(
+            ensemble,
+            reward_model,
+            action_size,
+            plan_horizon=args.plan_horizon,
+            optimisation_iters=args.optimisation_iters,
+            n_candidates=args.n_candidates,
+            top_candidates=args.top_candidates,
+            use_exploration=args.use_exploration,
+            use_reward=args.use_reward,
+            use_reward_info_gain = args.use_reward_info_gain,
+            expl_scale=args.expl_scale,
+            device=DEVICE,
+        ).to(DEVICE)
+
+    if args.planner == "PI":
+        planner = PIPlanner(
         ensemble,
         reward_model,
         action_size,
-        plan_horizon=args.plan_horizon,
-        optimisation_iters=args.optimisation_iters,
-        n_candidates=args.n_candidates,
-        top_candidates=args.top_candidates,
-        use_exploration=args.use_exploration,
-        use_reward=args.use_reward,
-        expl_scale=args.expl_scale,
-        device=DEVICE,
-    ).to(DEVICE)
+        args.N_smaples,
+        args.plan_horizon,
+        args.lambda_,
+        args.noise_mu,
+        args.noise_sigma,
+        env,
+        args.use_exploration,
+        args.use_reward,
+        args.use_reward_info_gain,
+        device=DEVICE
+        )
     agent = Agent(env, planner)
 
     if tools.logdir_exists(args.logdir):
@@ -90,7 +114,7 @@ def main(args):
     else:
         tools.init_dirs(args.logdir)
         metrics = tools.build_metrics()
-        buffer = agent.get_seed_episodes(buffer, args.n_seed_episodes)
+        buffer = agent.get_seed_episodes(buffer, args.n_seed_episodes,render_flag = args.render)
         message = "Collected seeds: [{} episodes] [{} frames]"
         tools.log(message.format(args.n_seed_episodes, buffer.total_steps))
 
@@ -134,8 +158,7 @@ def main(args):
         if args.action_noise > 0.0:
             start_time_expl = time.process_time()
             expl_reward, expl_steps, buffer = agent.run_episode(
-                buffer=buffer, action_noise=args.action_noise
-            )
+                buffer=buffer, action_noise=args.action_noise,render_flag=args.render)
             metrics["train_rewards"].append(expl_reward)
             metrics["train_steps"].append(expl_steps)
             message = "Exploration: [reward {:.2f} | steps {:.2f} ]"
@@ -144,7 +167,7 @@ def main(args):
             tools.log("Total exploration time: {:.2f}".format(end_time_expl))
 
         start_time = time.process_time()
-        reward, steps, buffer = agent.run_episode(buffer=buffer)
+        reward, steps, buffer = agent.run_episode(buffer=buffer,render_flag=args.render)
         metrics["test_rewards"].append(reward)
         metrics["test_steps"].append(steps)
         message = "Exploitation: [reward {:.2f} | steps {:.2f} ]"
@@ -175,7 +198,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--logdir", type=str, default="log-cheetah")
     parser.add_argument("--env_name", type=str, default="RoboschoolHalfCheetah-v1")
-    parser.add_argument("--max_episode_len", type=int, default=5000)
+    parser.add_argument("--max_episode_len", type=int, default=500)
     parser.add_argument("--action_repeat", type=int, default=3)
     parser.add_argument("--env_std", type=float, default=0.01)
     parser.add_argument("--action_noise", type=float, default=0.0)
@@ -197,7 +220,12 @@ if __name__ == "__main__":
     parser.add_argument("--save_every", type=int, default=20)
     parser.add_argument("--use_reward", type=bool, default=True)
     parser.add_argument("--use_exploration", type=bool, default=False)
+    parser.add_argument("--render", type=bool, default=False)
     parser.add_argument("--expl_scale", type=int, default=1)
+    parser.add_argument("--planner", type=str, default="CEM")
+    parser.add_argument("--use_ensemble_reward_model", type=bool, default=False)
+    parser.add_argument("--use_reward_info_gain", type=bool, default=False)
+
 
     args = parser.parse_args()
     main(args)
