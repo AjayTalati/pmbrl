@@ -102,15 +102,16 @@ def main(args):
 
     if tools.logdir_exists(args.logdir):
         tools.log("Loading existing _logdir_ at {}".format(args.logdir))
-        normalizer = tools.load_normalizer(args.logdir)
-        buffer = tools.load_buffer(args.logdir, buffer)
-        buffer.set_normalizer(normalizer)
-        metrics = tools.load_metrics(args.logdir)
-        model_dict = tools.load_model_dict(args.logdir, metrics["last_save"])
-        ensemble.load_state_dict(model_dict["ensemble"])
-        ensemble.set_normalizer(normalizer)
-        reward_model.load_state_dict(model_dict["reward"])
-        optim.load_state_dict(model_dict["optim"])
+        if args.save_model:
+            normalizer = tools.load_normalizer(args.logdir)
+            buffer = tools.load_buffer(args.logdir, buffer)
+            buffer.set_normalizer(normalizer)
+            metrics = tools.load_metrics(args.logdir)
+            model_dict = tools.load_model_dict(args.logdir, metrics["last_save"])
+            ensemble.load_state_dict(model_dict["ensemble"])
+            ensemble.set_normalizer(normalizer)
+            reward_model.load_state_dict(model_dict["reward"])
+            optim.load_state_dict(model_dict["optim"])
     else:
         tools.init_dirs(args.logdir)
         metrics = tools.build_metrics()
@@ -184,10 +185,11 @@ def main(args):
         if episode % args.save_every == 0:
             metrics["episode"] += 1
             metrics["last_save"] = episode
-            tools.save_model(args.logdir, ensemble, reward_model, optim, episode)
-            tools.save_normalizer(args.logdir, normalizer)
-            tools.save_buffer(args.logdir, buffer)
-            tools.save_metrics(args.logdir, metrics)
+            if args.save_model:
+                tools.save_model(args.logdir, ensemble, reward_model, optim, episode)
+                tools.save_normalizer(args.logdir, normalizer)
+                tools.save_buffer(args.logdir, buffer)
+                tools.save_metrics(args.logdir, metrics)
 
 
 if __name__ == "__main__":
@@ -225,6 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--planner", type=str, default="CEM")
     parser.add_argument("--use_ensemble_reward_model", type=bool, default=False)
     parser.add_argument("--use_reward_info_gain", type=bool, default=False)
+    parser.add_argument("--save_model", type=bool, default=True)
 
 
     args = parser.parse_args()
