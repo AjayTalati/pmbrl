@@ -14,7 +14,7 @@ import numpy as np
 import argparse
 import time
 
-from pmbrl.env import GymEnv, NoisyEnv
+#from pmbrl.env import GymEnv, NoisyEnv
 from pmbrl.normalizer import TransitionNormalizer
 from pmbrl.buffer import Buffer
 from pmbrl.models import EnsembleModel, RewardModel, EnsembleRewardModel
@@ -33,7 +33,8 @@ def main(args):
     if args.env_name == "SparseHalfCheetah" or args.env_name == "SparseCartpoleSwingup":
         try:
             import roboschool
-        except Exception as e
+        except:
+            raise Exception("Cannot use these environments without roboschool, which failed to import")
 
 
     env = TorchEnv(args.env_name, args.max_episode_len, action_repeat=args.action_repeat, device=DEVICE)
