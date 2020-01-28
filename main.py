@@ -9,7 +9,6 @@ kill PID
 # pylint: disable=no-member
 
 import gym
-import roboschool
 import torch
 import numpy as np
 import argparse
@@ -31,6 +30,10 @@ def main(args):
     tools.log(" === Loading experiment ===")
     tools.log(args)
     print("ARGS RENDER: ", args.render)
+    if args.env_name == "SparseHalfCheetah" or args.env_name == "SparseCartpoleSwingup":
+        try:
+            import roboschool
+        except Exception as e
 
 
     env = TorchEnv(args.env_name, args.max_episode_len, action_repeat=args.action_repeat, device=DEVICE)
