@@ -29,7 +29,10 @@ from baselines.envs import TorchEnv, NoisyEnv, const
 def main(args):
     tools.log(" === Loading experiment ===")
     tools.log(args)
+    print("N SEED EPISODES: ", args.n_seed_episodes)
     print("ARGS RENDER: ", args.render)
+    print("ARGS SAVE MODEL: ", args.save_model)
+    print("ARGS EXPLORATION: ", args.use_exploration)
     if args.env_name == "SparseHalfCheetah" or args.env_name == "SparseCartpoleSwingup":
         try:
             import roboschool
@@ -43,6 +46,7 @@ def main(args):
 
 
     if args.env_std > 0.0:
+        print("USING NOISE ENV!!!")
         env = NoisyEnv(env, args.env_std)
 
     normalizer = TransitionNormalizer()
@@ -69,6 +73,7 @@ def main(args):
         reward_model = RewardModel(state_size, args.hidden_size).to(DEVICE)
     params = list(ensemble.parameters()) + list(reward_model.parameters())
     optim = torch.optim.Adam(params, lr=args.learning_rate, eps=args.epsilon)
+    print("USE EXPLORATION: ", args.use_exploration)
 
     if args.planner == "CEM":
         planner = CEMPlanner(
@@ -107,6 +112,7 @@ def main(args):
     if tools.logdir_exists(args.logdir):
         tools.log("Loading existing _logdir_ at {}".format(args.logdir))
         if args.save_model:
+            print("In saver!!!: ", args.save_model)
             normalizer = tools.load_normalizer(args.logdir)
             buffer = tools.load_buffer(args.logdir, buffer)
             buffer.set_normalizer(normalizer)
@@ -195,8 +201,14 @@ def main(args):
                 tools.save_buffer(args.logdir, buffer)
                 tools.save_metrics(args.logdir, metrics)
 
+# well that has blown up ALL my experiments. They are ALL worthless, which is super frustrating and embarassing. So that's annoying and just ugh!
+
+
 
 if __name__ == "__main__":
+
+    def boolcheck(x):
+        return str(x).lower() in ["true", "1", "yes"]
 
     parser = argparse.ArgumentParser()
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -224,14 +236,14 @@ if __name__ == "__main__":
     parser.add_argument("--grad_clip_norm", type=int, default=1000)
     parser.add_argument("--log_every", type=int, default=20)
     parser.add_argument("--save_every", type=int, default=20)
-    parser.add_argument("--use_reward", type=bool, default=True)
-    parser.add_argument("--use_exploration", type=bool, default=False)
-    parser.add_argument("--render", type=bool, default=False)
+    parser.add_argument("--use_reward", type=boolcheck, default=True)
+    parser.add_argument("--use_exploration", type=boolcheck, default=False)
+    parser.add_argument("--render", type=boolcheck, default=False)
     parser.add_argument("--expl_scale", type=int, default=1)
     parser.add_argument("--planner", type=str, default="CEM")
-    parser.add_argument("--use_ensemble_reward_model", type=bool, default=False)
-    parser.add_argument("--use_reward_info_gain", type=bool, default=False)
-    parser.add_argument("--save_model", type=bool, default=True)
+    parser.add_argument("--use_ensemble_reward_model", type=boolcheck, default=False)
+    parser.add_argument("--use_reward_info_gain", type=boolcheck, default=False)
+    parser.add_argument("--save_model", type=boolcheck, default=True)
 
 
     args = parser.parse_args()
