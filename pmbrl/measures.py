@@ -7,7 +7,7 @@ from scipy.special import psi, gamma
 
 
 class InformationGain(object):
-    def __init__(self, model):
+    def __init__(self, model,expl_scale=1):
         self.model = model
 
     def __call__(self, delta_means, delta_vars):
@@ -34,9 +34,10 @@ class InformationGain(object):
 
         return info_gains
 
+
     def entropy_of_average(self, samples):
         """
-        samples (ensemble_size, n_candidates, n_dim) 
+        samples (ensemble_size, n_candidates, n_dim)
         """
         samples = samples.permute(1, 0, 2)
         n_samples = samples.size(1)

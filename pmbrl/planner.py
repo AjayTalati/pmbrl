@@ -21,6 +21,7 @@ class CEMPlanner(nn.Module):
         use_exploration=True,
         use_reward_info_gain=False,
         expl_scale=1,
+        return_stats = True,
         device="cpu",
     ):
         super().__init__()
@@ -40,7 +41,9 @@ class CEMPlanner(nn.Module):
         self.use_reward_info_gain = use_reward_info_gain
         self.device = device
 
+        self.reward_list = []
         self.measure = InformationGain(self.ensemble)
+        self.return_stats = return_stats
 
     def forward(self, state):
         state = torch.from_numpy(state).float().to(self.device)
@@ -83,6 +86,7 @@ class CEMPlanner(nn.Module):
                 )
 
                 rewards = self.rewards.mean(dim=1).sum(dim=0)
+                self.reward_list.append(rewards)
                 returns += rewards
 
             if self.use_reward_info_gain:
@@ -92,6 +96,11 @@ class CEMPlanner(nn.Module):
                   reward_info_gain[t,:] = self.measure.entropy_of_average(self.rewards[t,:,:])
                 #print("reward_info_gain: ", torch.sum(reward_info_gain,dim=0))
                 returns += torch.sum(reward_info_gain,dim=0)
+
+            if self.return_stats:
+                self.reward_list.append(rewards)
+                if self.use_exploration:
+                    self.info_list.append(expl_bonus)
 
 
             returns = torch.where(
@@ -110,6 +119,10 @@ class CEMPlanner(nn.Module):
                 best_actions.mean(dim=1, keepdim=True),
                 best_actions.std(dim=1, unbiased=False, keepdim=True),
             )
+
+        if self.return_stats:
+            reward_stats, info_stats = self.get_stats()
+            return action_mean[0].squeeze(dim=0), reward_stats, info_stats
 
         return action_mean[0].squeeze(dim=0)
 
@@ -134,6 +147,28 @@ class CEMPlanner(nn.Module):
         delta_vars = torch.stack(delta_vars[1:], dim=0)
         delta_means = torch.stack(delta_means[1:], dim=0)
         return states, delta_vars, delta_means
+
+    def get_stats(self):
+        self.reward_list = torch.stack(self.reward_list).view(-1)
+        self.info_list = torch.stack(self.info_list).view(-1) * self.expl_scale
+        reward_stats = {
+            "max": self.reward_list.max().item(),
+            "mean": self.reward_list.mean().item(),
+            "min": self.reward_list.min().item(),
+            "std": self.reward_list.std().item(),
+        }
+        if self.use_exploration:
+            info_stats = {
+                "max": self.info_list.max().item(),
+                "mean": self.info_list.mean().item(),
+                "min": self.info_list.min().item(),
+                "std": self.info_list.std().item(),
+            }
+        else:
+            info_stats = {}
+        self.info_list = []
+        seoflreward_list = []
+        return reward_stats, info_stats
 
 
 ### Path Integral Planner ###

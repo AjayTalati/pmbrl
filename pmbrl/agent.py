@@ -4,6 +4,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from .tools import average_stats
 
 from copy import deepcopy
 
@@ -12,6 +13,9 @@ class Agent(object):
     def __init__(self, env, planner):
         self.env = env
         self.planner = planner
+        self.stats_sample_reward = 0.1
+        self.reward_stats_samples = []
+        self.info_stats_samples = []
 
     def get_seed_episodes(self, buffer, n_episodes,render_flag=False):
         for _ in range(n_episodes):
@@ -36,7 +40,16 @@ class Agent(object):
         with torch.no_grad():
             state = self.env.reset()
             while not done:
-                action = self.planner(state)
+                r = np.random.uniform()
+                if r < self.stats_sample_reward:
+                    self.planner.return_stats = True
+                    action,reward_stats, info_stats = self.planner(state)
+                    self.planner.return_stats = False
+                    self.reward_stats_samples.append(reward_stats)
+                    self.info_stats_samples.append(info_stats)
+                else:
+                    action = self.planner(state)
+
                 action = action.cpu().detach().numpy()
 
                 if action_noise > 0:
@@ -57,6 +70,6 @@ class Agent(object):
         self.env.close()
 
         if buffer is not None:
-            return total_reward, total_steps, buffer
+            return total_reward, total_steps, buffer,average_stats(reward_stats), average_stats(info_stats)
         else:
-            return total_reward, total_steps
+            return total_reward, total_stepsc,average_stats(reward_stats), average_stats(info_stats)
