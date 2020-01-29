@@ -9,17 +9,16 @@ kill PID
 # pylint: disable=no-member
 
 import gym
-import roboschool
 import torch
 import numpy as np
 import argparse
 import time
 
-from pmbrl.env import GymEnv, NoisyEnv
+#from pmbrl.env import GymEnv, NoisyEnv
 from pmbrl.normalizer import TransitionNormalizer
 from pmbrl.buffer import Buffer
-from pmbrl.models import EnsembleModel, RewardModel
-from pmbrl.planner import Planner
+from pmbrl.models import EnsembleModel, RewardModel, EnsembleRewardModel
+from pmbrl.planner import CEMPlanner, PIPlanner, RandomShootingPlanner
 from pmbrl.agent import Agent
 from pmbrl import tools
 
@@ -30,6 +29,16 @@ from baselines.envs import TorchEnv, NoisyEnv, const
 def main(args):
     tools.log(" === Loading experiment ===")
     tools.log(args)
+    print("N SEED EPISODES: ", args.n_seed_episodes)
+    print("ARGS RENDER: ", args.render)
+    print("ARGS SAVE MODEL: ", args.save_model)
+    print("ARGS EXPLORATION: ", args.use_exploration)
+    if args.env_name == "SparseHalfCheetah" or args.env_name == "SparseCartpoleSwingup":
+        try:
+            import roboschool
+        except:
+            raise Exception("Cannot use these environments without roboschool, which failed to import")
+
 
     env = TorchEnv(args.env_name, args.max_episode_len, action_repeat=args.action_repeat, device=DEVICE)
     state_size = env.state_dims[0]
@@ -37,6 +46,7 @@ def main(args):
 
 
     if args.env_std > 0.0:
+        print("USING NOISE ENV!!!")
         env = NoisyEnv(env, args.env_std)
 
     normalizer = TransitionNormalizer()
@@ -57,40 +67,65 @@ def main(args):
         normalizer,
         device=DEVICE,
     ).to(DEVICE)
-    reward_model = RewardModel(state_size, args.hidden_size).to(DEVICE)
+    if args.use_ensemble_reward_model:
+        reward_model = EnsembleRewardModel(state_size, args.hidden_size, args.ensemble_size).to(DEVICE)
+    else:
+        reward_model = RewardModel(state_size, args.hidden_size).to(DEVICE)
     params = list(ensemble.parameters()) + list(reward_model.parameters())
     optim = torch.optim.Adam(params, lr=args.learning_rate, eps=args.epsilon)
+    print("USE EXPLORATION: ", args.use_exploration)
 
-    planner = Planner(
+    if args.planner == "CEM":
+        planner = CEMPlanner(
+            ensemble,
+            reward_model,
+            action_size,
+            plan_horizon=args.plan_horizon,
+            optimisation_iters=args.optimisation_iters,
+            n_candidates=args.n_candidates,
+            top_candidates=args.top_candidates,
+            use_exploration=args.use_exploration,
+            use_reward=args.use_reward,
+            use_reward_info_gain = args.use_reward_info_gain,
+            expl_scale=args.expl_scale,
+            device=DEVICE,
+        ).to(DEVICE)
+
+    if args.planner == "PI":
+        planner = PIPlanner(
         ensemble,
         reward_model,
         action_size,
-        plan_horizon=args.plan_horizon,
-        optimisation_iters=args.optimisation_iters,
-        n_candidates=args.n_candidates,
-        top_candidates=args.top_candidates,
-        use_exploration=args.use_exploration,
-        use_reward=args.use_reward,
-        expl_scale=args.expl_scale,
-        device=DEVICE,
-    ).to(DEVICE)
+        args.N_smaples,
+        args.plan_horizon,
+        args.lambda_,
+        args.noise_mu,
+        args.noise_sigma,
+        env,
+        args.use_exploration,
+        args.use_reward,
+        args.use_reward_info_gain,
+        device=DEVICE
+        )
     agent = Agent(env, planner)
 
     if tools.logdir_exists(args.logdir):
         tools.log("Loading existing _logdir_ at {}".format(args.logdir))
-        normalizer = tools.load_normalizer(args.logdir)
-        buffer = tools.load_buffer(args.logdir, buffer)
-        buffer.set_normalizer(normalizer)
-        metrics = tools.load_metrics(args.logdir)
-        model_dict = tools.load_model_dict(args.logdir, metrics["last_save"])
-        ensemble.load_state_dict(model_dict["ensemble"])
-        ensemble.set_normalizer(normalizer)
-        reward_model.load_state_dict(model_dict["reward"])
-        optim.load_state_dict(model_dict["optim"])
+        if args.save_model:
+            print("In saver!!!: ", args.save_model)
+            normalizer = tools.load_normalizer(args.logdir)
+            buffer = tools.load_buffer(args.logdir, buffer)
+            buffer.set_normalizer(normalizer)
+            metrics = tools.load_metrics(args.logdir)
+            model_dict = tools.load_model_dict(args.logdir, metrics["last_save"])
+            ensemble.load_state_dict(model_dict["ensemble"])
+            ensemble.set_normalizer(normalizer)
+            reward_model.load_state_dict(model_dict["reward"])
+            optim.load_state_dict(model_dict["optim"])
     else:
         tools.init_dirs(args.logdir)
         metrics = tools.build_metrics()
-        buffer = agent.get_seed_episodes(buffer, args.n_seed_episodes)
+        buffer = agent.get_seed_episodes(buffer, args.n_seed_episodes,render_flag = args.render)
         message = "Collected seeds: [{} episodes] [{} frames]"
         tools.log(message.format(args.n_seed_episodes, buffer.total_steps))
 
@@ -133,20 +168,24 @@ def main(args):
 
         if args.action_noise > 0.0:
             start_time_expl = time.process_time()
-            expl_reward, expl_steps, buffer = agent.run_episode(
-                buffer=buffer, action_noise=args.action_noise
-            )
+            expl_reward, expl_steps, buffer,reward_stats,_ = agent.run_episode(
+                buffer=buffer, action_noise=args.action_noise,render_flag=args.render)
             metrics["train_rewards"].append(expl_reward)
             metrics["train_steps"].append(expl_steps)
+            metrics["reward_stats"].append(reward_stats)
             message = "Exploration: [reward {:.2f} | steps {:.2f} ]"
             tools.log(message.format(expl_reward, expl_steps))
             end_time_expl = time.process_time() - start_time_expl
             tools.log("Total exploration time: {:.2f}".format(end_time_expl))
 
         start_time = time.process_time()
-        reward, steps, buffer = agent.run_episode(buffer=buffer)
+        reward, steps, buffer, reward_stats, info_stats = agent.run_episode(buffer=buffer,render_flag=args.render)
+        print("reward_stats: ", reward_stats)
+        print("info_stats: ", info_stats)
         metrics["test_rewards"].append(reward)
         metrics["test_steps"].append(steps)
+        metrics["reward_stats"].append(reward_stats)
+        metrics["information_stats"].append(info_stats)
         message = "Exploitation: [reward {:.2f} | steps {:.2f} ]"
         tools.log(message.format(reward, steps))
         end_time = time.process_time() - start_time
@@ -161,13 +200,17 @@ def main(args):
         if episode % args.save_every == 0:
             metrics["episode"] += 1
             metrics["last_save"] = episode
-            tools.save_model(args.logdir, ensemble, reward_model, optim, episode)
-            tools.save_normalizer(args.logdir, normalizer)
-            tools.save_buffer(args.logdir, buffer)
-            tools.save_metrics(args.logdir, metrics)
+            if args.save_model:
+                tools.save_model(args.logdir, ensemble, reward_model, optim, episode)
+                tools.save_normalizer(args.logdir, normalizer)
+                tools.save_buffer(args.logdir, buffer)
+                tools.save_metrics(args.logdir, metrics)
 
 
 if __name__ == "__main__":
+
+    def boolcheck(x):
+        return str(x).lower() in ["true", "1", "yes"]
 
     parser = argparse.ArgumentParser()
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -175,7 +218,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--logdir", type=str, default="log-cheetah")
     parser.add_argument("--env_name", type=str, default="RoboschoolHalfCheetah-v1")
-    parser.add_argument("--max_episode_len", type=int, default=5000)
+    parser.add_argument("--max_episode_len", type=int, default=500)
     parser.add_argument("--action_repeat", type=int, default=3)
     parser.add_argument("--env_std", type=float, default=0.01)
     parser.add_argument("--action_noise", type=float, default=0.0)
@@ -195,9 +238,15 @@ if __name__ == "__main__":
     parser.add_argument("--grad_clip_norm", type=int, default=1000)
     parser.add_argument("--log_every", type=int, default=20)
     parser.add_argument("--save_every", type=int, default=20)
-    parser.add_argument("--use_reward", type=bool, default=True)
-    parser.add_argument("--use_exploration", type=bool, default=False)
+    parser.add_argument("--use_reward", type=boolcheck, default=True)
+    parser.add_argument("--use_exploration", type=boolcheck, default=False)
+    parser.add_argument("--render", type=boolcheck, default=False)
     parser.add_argument("--expl_scale", type=int, default=1)
+    parser.add_argument("--planner", type=str, default="CEM")
+    parser.add_argument("--use_ensemble_reward_model", type=boolcheck, default=False)
+    parser.add_argument("--use_reward_info_gain", type=boolcheck, default=False)
+    #parser.add_argument("--save_model", type=boolcheck, default=True)
+
 
     args = parser.parse_args()
     main(args)

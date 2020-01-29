@@ -7,7 +7,7 @@ from scipy.special import psi, gamma
 
 
 class InformationGain(object):
-    def __init__(self, model):
+    def __init__(self, model,expl_scale=1):
         self.model = model
 
     def __call__(self, delta_means, delta_vars):
@@ -34,9 +34,10 @@ class InformationGain(object):
 
         return info_gains
 
+
     def entropy_of_average(self, samples):
         """
-        samples (ensemble_size, n_candidates, n_dim) 
+        samples (ensemble_size, n_candidates, n_dim)
         """
         samples = samples.permute(1, 0, 2)
         n_samples = samples.size(1)
@@ -70,7 +71,7 @@ class InformationGain(object):
         return np.pi ** (dim / 2) / gamma(dim / 2 + 1)
 
     def average_of_entropy(self, delta_vars):
-        return torch.mean(self, self.gaussian_diagonal_entropy(delta_vars), dim=0)
+        return torch.mean(self.gaussian_diagonal_entropy(delta_vars), dim=0)
 
     def gaussian_diagonal_entropy(self, delta_vars):
         min_variance = 1e-8

@@ -73,6 +73,14 @@ def save_normalizer(logdir, normalizer):
     _save_pickle(path, normalizer)
     log("Saved _normalizer_ at path `{}`".format(path))
 
+def average_stats(statslist):
+    return {
+        "max": np.mean(np.array([stats["max"] for stats in statslist])),
+        "min": np.mean(np.array([stats["min"] for stats in statslist])),
+        "mean": np.mean(np.array([stats["mean"] for stats in statslist])),
+        "std": np.mean(np.array([stats["std"] for stats in statslist])),
+    }
+
 
 def build_metrics():
     return {
@@ -86,7 +94,10 @@ def build_metrics():
         "test_steps": [],
         "total_steps": [],
         "episode_time": [],
+        "reward_stats": [],
+        "information_stats": [],
     }
+
 
 
 def _load_json(path):
