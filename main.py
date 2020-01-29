@@ -168,19 +168,24 @@ def main(args):
 
         if args.action_noise > 0.0:
             start_time_expl = time.process_time()
-            expl_reward, expl_steps, buffer = agent.run_episode(
+            expl_reward, expl_steps, buffer,reward_stats,_ = agent.run_episode(
                 buffer=buffer, action_noise=args.action_noise,render_flag=args.render)
             metrics["train_rewards"].append(expl_reward)
             metrics["train_steps"].append(expl_steps)
+            metrics["reward_stats"].append(reward_stats)
             message = "Exploration: [reward {:.2f} | steps {:.2f} ]"
             tools.log(message.format(expl_reward, expl_steps))
             end_time_expl = time.process_time() - start_time_expl
             tools.log("Total exploration time: {:.2f}".format(end_time_expl))
 
         start_time = time.process_time()
-        reward, steps, buffer = agent.run_episode(buffer=buffer,render_flag=args.render)
+        reward, steps, buffer, reward_stats, info_stats = agent.run_episode(buffer=buffer,render_flag=args.render)
+        print("reward_stats: ", reward_stats)
+        print("info_stats: ", info_stats)
         metrics["test_rewards"].append(reward)
         metrics["test_steps"].append(steps)
+        metrics["reward_stats"].append(reward_stats)
+        metrics["information_stats"].append(info_stats)
         message = "Exploitation: [reward {:.2f} | steps {:.2f} ]"
         tools.log(message.format(reward, steps))
         end_time = time.process_time() - start_time
@@ -200,9 +205,6 @@ def main(args):
                 tools.save_normalizer(args.logdir, normalizer)
                 tools.save_buffer(args.logdir, buffer)
                 tools.save_metrics(args.logdir, metrics)
-
-# well that has blown up ALL my experiments. They are ALL worthless, which is super frustrating and embarassing. So that's annoying and just ugh!
-
 
 
 if __name__ == "__main__":
@@ -243,7 +245,7 @@ if __name__ == "__main__":
     parser.add_argument("--planner", type=str, default="CEM")
     parser.add_argument("--use_ensemble_reward_model", type=boolcheck, default=False)
     parser.add_argument("--use_reward_info_gain", type=boolcheck, default=False)
-    parser.add_argument("--save_model", type=boolcheck, default=True)
+    #parser.add_argument("--save_model", type=boolcheck, default=True)
 
 
     args = parser.parse_args()
